@@ -41,14 +41,37 @@ def handle_result(rpc, response, fund_list):
     #response.set_status(500, "Error!")
     context = result.content
     #response.write(context[:-1])
+    '''
     try:
         fund = eval(context[:-1])
     except TypeError:
         fund = {}
     fund_list.append(fund)
-    #return fund
-    #response.write(fund)
-    #response.write(lambda : context)
+    '''
+    
+    #try:
+    gz = eval(context)
+    #except TypeError:
+    #gz = {}
+    
+    #["1,09:30,0.7384","2,09:31,0.5826"
+    fund = {}
+    if len(gz['gzdata']) > 0:
+        gzdata = gz['gzdata'][-1]
+        gz_time = gzdata.split(',')[1]
+        gz_rate = gzdata.split(',')[2]
+        
+        gz_date = gz['gztime']
+        gz_gsz = gz['gz']
+        
+        #data({"fundcode":"000711","name":"","jzrq":"2015-05-08","dwjz":"1.4900","gsz":"1.5384","gszzl":"3.25","gztime":"2015-05-11 14:05"});
+        fund['gztime'] = gz_date + ' ' + gz_time
+        fund['gsz'] = gz_gsz
+        fund['gszzl'] = gz_rate
+    
+    fund_list.append(fund)
+    
+    
 
 # Use a helper function to define the scope of the callback.
 def create_callback(rpc, response, fund_list):
@@ -59,8 +82,7 @@ class FundIndex(webapp2.RequestHandler):
         #cb = self.request.get('cb')
         fcs = self.request.get('fcs').split(',')
         timeout = float(self.request.get('timeout', default_value=5))
-        url = 'http://fund.eastmoney.com/data/funddataforgznew.aspx'
-        #url = 'http://fund.eastmoney.com/api/ZXZT.ashx?m=0&fcodes=213008,519069,163409,320012&fileds=FSRQ,&sortfile=FCODE&sorttype=asc&callback='
+        url = 'http://fundex2.eastmoney.com/FundWebServices/FundDataForMobile.aspx'
 
         rpcs = []
         fund_list = []
@@ -69,16 +91,32 @@ class FundIndex(webapp2.RequestHandler):
 
         for fc in fcs:
             #self.response.write("fc=%s, cb=%s, timeout=%f\n" % (fc, cb, timeout))
+            # fetch gz
             form_fields = {
-                't': 'basewap',
-                'cb': handle_context.__name__,
-                'fc': fc
+                't': 'gz',
+                'fc': fc,
+                'rg': 'y',
+                'rk': '3y',
             }
-            form_data  = urllib.urlencode(form_fields)
+            form_data = urllib.urlencode(form_fields)
             rpc = urlfetch.create_rpc(timeout)
             rpc.callback = create_callback(rpc, self.response, fund_list)
             urlfetch.make_fetch_call(rpc, url, payload=form_data, method=urlfetch.POST)
             rpcs.append(rpc)
+            '''
+            # fetch dwjz
+            form_fields = {
+                't': 'dwjznew',
+                'fc': fc,
+                'rg': 'y',
+                'rk': '3y',
+            }
+            form_data = urllib.urlencode(form_fields)
+            rpc = urlfetch.create_rpc(timeout)
+            rpc.callback = create_callback(rpc, self.response, fund_list)
+            urlfetch.make_fetch_call(rpc, url, payload=form_data, method=urlfetch.POST)
+            rpcs.append(rpc)
+            '''
 
         # ...
         #self.response.set_status(404)
