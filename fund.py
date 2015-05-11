@@ -19,63 +19,57 @@ from google.appengine.api import urlfetch
 import webapp2
 import urllib
 import time
+import json
 
-def handle_context(context):
-    return context
-
-def handle_result(rpc, response, fund_list):
+def handle_result(rpc, response, fund_info, fc, request_type):
     try:
         result = rpc.get_result()
     except urlfetch.DownloadError:
         #response.write('Oops! Timeout!')
         response.set_status(500)   # set as 500 Internal Server Error
         return
-    
+
     status_code = result.status_code
     #response.write(status_code)
     if status_code != 200:
         response.write('Oops! Error Code: %d' % (status_code,))
         response.set_status(500)   # set as 500 Internal Server Error
-        #return
+        return
 
-    #response.set_status(500, "Error!")
     context = result.content
-    #response.write(context[:-1])
-    '''
-    try:
-        fund = eval(context[:-1])
-    except TypeError:
-        fund = {}
-    fund_list.append(fund)
-    '''
+    #response.write(context)
+    #return
+
+    #fund = eval(context)
+    fund = json.loads(context)
+
+    if fc not in fund_info.keys():
+        fund_info[fc] = {}
     
-    #try:
-    gz = eval(context)
-    #except TypeError:
-    #gz = {}
-    
-    #["1,09:30,0.7384","2,09:31,0.5826"
-    fund = {}
-    if len(gz['gzdata']) > 0:
-        gzdata = gz['gzdata'][-1]
-        gz_time = gzdata.split(',')[1]
-        gz_rate = gzdata.split(',')[2]
-        
-        gz_date = gz['gztime']
-        gz_gsz = gz['gz']
-        
-        #data({"fundcode":"000711","name":"","jzrq":"2015-05-08","dwjz":"1.4900","gsz":"1.5384","gszzl":"3.25","gztime":"2015-05-11 14:05"});
-        fund['gztime'] = gz_date + ' ' + gz_time
-        fund['gsz'] = gz_gsz
-        fund['gszzl'] = gz_rate
-    
-    fund_list.append(fund)
-    
-    
+    if request_type == 'base':
+        fund_info[fc]['fundcode'] = fund['fundcode']
+        fund_info[fc]['name'] = fund['name']
+        fund_info[fc]['gztime'] = fund['gztime'] and fund['gztime'] or fund['jzrq']
+        fund_info[fc]['gsz'] = fund['gsz'] and fund['gsz'] or fund['dwjz']
+        fund_info[fc]['gszzl'] = fund['gszzl'] and fund['gszzl'] or '0.00'
+    elif request_type == 'gz':
+        fund_info[fc]['gzdata'] = fund['gzdata']
+    elif request_type == 'dwjznew':
+        #fetch jzdata
+        if fund['jzdata'] == 0:
+            fund_info[fc]['jzdata'] = []
+        if fund['jzdata'] == 1:
+            fund_info[fc]['jzdata'] = [fund['jzdata'][-1].split(','), fund['jzdata'][-1].split(','), fund['jzdata'][-1].split(',')]
+        elif fund['jzdata'] == 2:
+            fund_info[fc]['jzdata'] = [fund['jzdata'][-1].split(','), fund['jzdata'][-2].split(','), fund['jzdata'][-2].split(',')]
+        else:
+            fund_info[fc]['jzdata'] = [fund['jzdata'][-1].split(','), fund['jzdata'][-2].split(','), fund['jzdata'][-3].split(',')]
+    else:
+        pass
 
 # Use a helper function to define the scope of the callback.
-def create_callback(rpc, response, fund_list):
-    return lambda: handle_result(rpc, response, fund_list)
+def create_callback(rpc, response, fund_info, fc, request_type):
+    return lambda: handle_result(rpc, response, fund_info, fc, request_type)
 
 class FundIndex(webapp2.RequestHandler):
     def get(self):
@@ -85,47 +79,50 @@ class FundIndex(webapp2.RequestHandler):
         url = 'http://fundex2.eastmoney.com/FundWebServices/FundDataForMobile.aspx'
 
         rpcs = []
-        fund_list = []
+        fund_info = {}
         #self.response.write(url)
         #self.response.write(fcs)
-
+        
         for fc in fcs:
-            #self.response.write("fc=%s, cb=%s, timeout=%f\n" % (fc, cb, timeout))
-            # fetch gz
-            form_fields = {
-                't': 'gz',
-                'fc': fc,
-                'rg': 'y',
-                'rk': '3y',
-            }
-            form_data = urllib.urlencode(form_fields)
-            rpc = urlfetch.create_rpc(timeout)
-            rpc.callback = create_callback(rpc, self.response, fund_list)
-            urlfetch.make_fetch_call(rpc, url, payload=form_data, method=urlfetch.POST)
-            rpcs.append(rpc)
-            '''
-            # fetch dwjz
-            form_fields = {
-                't': 'dwjznew',
-                'fc': fc,
-                'rg': 'y',
-                'rk': '3y',
-            }
-            form_data = urllib.urlencode(form_fields)
-            rpc = urlfetch.create_rpc(timeout)
-            rpc.callback = create_callback(rpc, self.response, fund_list)
-            urlfetch.make_fetch_call(rpc, url, payload=form_data, method=urlfetch.POST)
-            rpcs.append(rpc)
-            '''
+            form_fields = [
+                # fetch fund info
+                {
+                    't': 'base',
+                    'fc': fc,
+                },
+                ## fetch gz
+                #{
+                #    't': 'gz',
+                #    'fc': fc,
+                #    'rg': 'y',
+                #    'rk': '3y',
+                #},
+                # fetch dwjz
+                {
+                    't': 'dwjznew',
+                    'fc': fc,
+                    'rg': 'y',
+                    'rk': '3y',
+                }
+            ]
+            for form_field in form_fields:
+                #self.response.write("fc=%s, timeout=%f\n" % (fc, timeout))
 
-        # ...
+                form_data = urllib.urlencode(form_field)
+                rpc = urlfetch.create_rpc(timeout)
+                rpc.callback = create_callback(rpc, self.response, fund_info, fc, form_field['t'])
+                urlfetch.make_fetch_call(rpc, url, payload=form_data, method=urlfetch.POST)
+                rpcs.append(rpc)
+
+
         #self.response.set_status(404)
         # Finish all RPCs, and let callbacks process the results.
         for rpc in rpcs:
             rpc.wait()
             
+            
         #for fund in fund_list:
-        self.response.write(fund_list)
+        self.response.write(json.dumps(fund_info))
 
 app = webapp2.WSGIApplication([
     ('/fund', FundIndex),
