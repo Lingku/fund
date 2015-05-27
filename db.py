@@ -39,6 +39,7 @@ class FundRecord(db.Model):
   date = db.DateProperty(required=True, auto_now=True)
   base = db.FloatProperty(required=True)
   units = db.FloatProperty(required=True)
+  netvalue = db.FloatProperty(required=True)
   rate = db.FloatProperty(required=True)
 
 class DbIndex(webapp2.RequestHandler):
@@ -112,26 +113,24 @@ class DbIndex(webapp2.RequestHandler):
           """ )
           
         self.response.out.write("""
-        <form action="db/addrec" method="GET">
+        <form action="db/recadd" method="GET">
             <div>fund code:<input type="text" name="fc" value="000711"><input type="button" value="check fund code"></div>
-            <div>fund name:<input type="text" name="name"></div>
+            <div>fund name:<input type="text" name="name" value="aaa"></div>
             <div>isredemptive:<input type="checkbox" name="isredemptive"></div>
-            <div>fund date:<input type="date" name="date"></div>
-            <div>fund base:<input type="text" name="base"></div>
-            <div>fund units:<input type="text" name="units"></div>
-            <div>fund rate:<input type="text" name="rate"></div>
+            <div>fund date:<input type="date" name="date" value="2015-05-20"></div>
+            <div>fund base:<input type="text" name="base" value="5000.0"></div>
+            <div>fund units:<input type="text" name="units" value="1551.52"></div>
+            <div>fund net value:<input type="text" name="netvalue" value="3.2130"></div>
+            <div>fund rate:<input type="text" name="rate", value="0.50">%</div>
             <div><input type="submit" value="Add a new fund record"></div>
         </form>
           """ )
-          
+
         self.response.write('</body>')
         self.response.write('</html>')
 
 
 def _add(fc, name):
-    
-    #todo: check fc first
-
     funds = db.GqlQuery("SELECT * FROM FundInfo WHERE fc = :1", fc)
     if funds.count() >= 1:
         return False
@@ -150,6 +149,98 @@ def _add(fc, name):
     fund.put()
 
     return True
+
+def _reset(fc = None):
+    if fc is None:
+       funds = db.GqlQuery("SELECT * FROM FundInfo") 
+    else:
+        funds = db.GqlQuery("SELECT * FROM FundInfo WHERE fc = :1", fc)
+
+    for fund in funds:
+        fund.base = 0.0
+        fund.units = 0.0
+        fund.rate = 0.0
+        fund.put()
+    
+def _update(fc, name, base, units, rate):
+    if fc is None:
+       funds = db.GqlQuery("SELECT * FROM FundInfo") 
+    else:
+        funds = db.GqlQuery("SELECT * FROM FundInfo WHERE fc = :1", fc)
+
+    for fund in funds:
+        fund.name = name
+        fund.base = base
+        fund.units = units
+        fund.rate = rate
+        fund.put()
+    
+def _del(fc = None):
+    if fc is None:
+       funds = db.GqlQuery("SELECT * FROM FundInfo") 
+    else:
+        funds = db.GqlQuery("SELECT * FROM FundInfo WHERE fc = :1", fc)
+
+    for fund in funds:
+        fund.delete()
+
+    
+def _rec_add(fc, name, isredemptive, date, base, units, netvalue, rate):
+
+    funds = db.GqlQuery("SELECT * FROM FundInfo WHERE fc = :1", fc)
+    if funds.count() < 1:
+        return False    #not found
+        
+    fund = funds.get()
+    name = fund.name
+
+    records = db.GqlQuery("SELECT * FROM FundRecord WHERE fc = :1 and isredemptive = :2", fc, isredemptive)
+    if records.count() >= 1:
+        return False    #exist
+
+    record = FundRecord(fc=fc,
+                 name=name,
+                 isredemptive=isredemptive,
+                 date=datetime.datetime.strptime(date, "%Y-%m-%d").date(),
+                 base=base,
+                 units=units,
+                 netvalue=netvalue,
+                 rate=rate,
+                 )
+    record.put()
+    
+    if isredemptive is False:
+        fund.base += base
+        fund.units += units
+    else:
+        fund.base -= base
+        fund.units -= units
+    fund.put()
+
+    return True
+
+def _rec_update(fc, name, date, base, units, netvalue, rate):
+    records = db.GqlQuery("SELECT * FROM FundRecord WHERE fc = :1 and isredemptive = :2", fc, isredemptive)
+
+    for record in records:
+        record.name = name
+        record.date = datetime.datetime.strptime(date, "%Y-%m-%d").date()
+        record.base = base
+        record.units = units
+        record.netvalue = netvalue
+        record.rate = rate
+        record.put()
+
+def _rec_del(fc = None, isredemptive = None):
+    if fc is None:
+        records = db.GqlQuery("SELECT * FROM FundRecord")
+    elif isredemptive is None:
+        records = db.GqlQuery("SELECT * FROM FundRecord WHERE fc = :1", fc)
+    else:
+        records = db.GqlQuery("SELECT * FROM FundRecord WHERE fc = :1 and isredemptive = :2", fc, isredemptive)
+
+    for record in records:
+        record.delete()
         
 class Add(webapp2.RequestHandler):
     def get(self):
@@ -272,31 +363,24 @@ class Query(webapp2.RequestHandler):
         self.response.write('</body>')
         self.response.write('</html>')
         
-class AddRecord(webapp2.RequestHandler):
+class RecordAdd(webapp2.RequestHandler):
     def get(self):
-        pass
-
-class DbRecord(webapp2.RequestHandler):
-    def get(self):
-        self.response.write('<html>')
-        self.response.write('<head></head>')
-        self.response.write('<body>')
-    
-
-        self.response.out.write("""
-        <form action="db/rec/add" method="post">
-            <div>fund code:<input type="text" name="fc" value="000711"></div>
-            <div>fund name:<input type="text" name="name" value="fund  aaa"></div>
-            <div>isredemptive:<input type="checkbox" name="isredemptive"></div>
-            <div>fund date:<input type="date" name="date"></div>
-            <div>fund base:<input type="text" name="base"></div>
-            <div>fund units:<input type="text" name="units"></div>
-            <div>fund rate:<input type="text" name="rate"></div>
-            <div><input type="submit" value="Add a new fund record"></div>
-        </form>
-          """ )
-        self.response.write('</body>')   
-        self.response.write('</html>')
+        fc = self.request.get('fc')
+        name = self.request.get('name')
+        if self.request.get('isredemptive') is '':
+            isredemptive = False
+        else:
+            isredemptive = True
+        date = self.request.get('date')
+        base = float(self.request.get('base'))
+        units = float(self.request.get('units'))
+        netvalue = float(self.request.get('netvalue'))
+        rate = float(self.request.get('rate'))
+        
+        if _rec_add(fc, name, isredemptive, date, base, units, netvalue, rate) is False:
+            self.response.out.write("Add record failed! fc=%s" % (fc, ))
+        else:
+            self.response.out.write("Add record OK! fc=%s" % (fc, ))
             
 app = webapp2.WSGIApplication([
     ('/db/?', DbIndex),
@@ -306,6 +390,5 @@ app = webapp2.WSGIApplication([
     ('/db/delall', DeleteAll),
     ('/db/update', Update),
     ('/db/query', Query),
-    ('/db/rec', DbRecord),
-    ('/db/addrec', AddRecord),
+    ('/db/recadd', RecordAdd),
 ], debug=True)
